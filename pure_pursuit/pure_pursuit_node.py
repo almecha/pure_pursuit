@@ -48,7 +48,7 @@ class PurePursuit(Node):
         
         if (self.controller is not None):
             if (self.controller.vt == 0):
-                msg.linear.x = 0
+                msg.linear.x = 0.0
                 msg.angular.z = 1e-6
             else:
                 msg.linear.x = self.robot.v
