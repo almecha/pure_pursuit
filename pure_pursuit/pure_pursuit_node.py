@@ -45,6 +45,10 @@ class PurePursuit(Node):
             acceleration = proportional_control(self.controller.target_velocity(), self.robot.v)
             self.w = self.controller.angular_velocity()
             self.robot.update_state([acceleration,self.w],self.dt)
+        
+        if (self.controller.vt == 0):
+            msg.linear.x = 0
+            msg.angular.z = 1e-6
         # Compose a message and send it
         msg.linear.x = self.robot.v
         msg.angular.z = self.robot.w
