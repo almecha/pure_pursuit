@@ -46,12 +46,16 @@ class PurePursuit(Node):
             self.w = self.controller.angular_velocity()
             self.robot.update_state([acceleration,self.w],self.dt)
         
-        if (self.controller.vt == 0):
-            msg.linear.x = 0
-            msg.angular.z = 1e-6
+        if (self.controller is not None):
+            if (self.controller.vt == 0):
+                msg.linear.x = 0
+                msg.angular.z = 1e-6
+            else:
+                msg.linear.x = self.robot.v
+                msg.angular.z = self.robot.w
         # Compose a message and send it
-        msg.linear.x = self.robot.v
-        msg.angular.z = self.robot.w
+        # msg.linear.x = self.robot.v
+        # msg.angular.z = self.robot.w
         print(f"Velocity is {self.robot.v}, angular is {self.robot.w}")
         self.twist_pub.publish(msg)
 
