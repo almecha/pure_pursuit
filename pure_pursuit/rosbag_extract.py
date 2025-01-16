@@ -575,7 +575,7 @@ timestamps_real, real_positions, real_velocities = extract_odom_positions_ros2(b
 timestamps_cmdvel, _, cmd_vel_velocities = extract_odom_positions_ros2(bag_path, "/cmd_vel")
 path_positions = extract_path_ros2(bag_path,"/global_path")
 # print(path_positions)
-interpolated_path_positions = interpolate_waypoints(path_positions)
+interpolated_path_positions = interpolate_waypoints(path_positions, target_size= len(real_positions) )  # To ensure real_positions and path_positions have same dimensions
 
 # Interpolate /ekf and /ground_truth to match /odom timestamps
 if real_positions:
