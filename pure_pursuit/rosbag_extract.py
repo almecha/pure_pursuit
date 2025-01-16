@@ -309,7 +309,7 @@ def interpolate_velocity_data(timestamps_real, timestamps_source, source_velocit
 # Function to compute MAE and RMSE
 def compute_error(real_positions, deformed_positions):
     real_x, real_y, real_theta = zip(*real_positions)
-    deformed_x, deformed_y, deformed_theta = zip(*deformed_positions)
+    deformed_x, deformed_y = zip(*deformed_positions)
 
     # Compute MAE and RMSE for X, Y, and Theta
     mae_x = np.mean(np.abs(np.array(real_x) - np.array(deformed_x)))
@@ -318,13 +318,13 @@ def compute_error(real_positions, deformed_positions):
     mae_y = np.mean(np.abs(np.array(real_y) - np.array(deformed_y)))
     rmse_y = np.sqrt(np.mean((np.array(real_y) - np.array(deformed_y)) ** 2))
 
-    mae_theta = np.mean(np.abs(np.array(real_theta) - np.array(deformed_theta)))
-    rmse_theta = np.sqrt(np.mean((np.array(real_theta) - np.array(deformed_theta)) ** 2))
+    # mae_theta = np.mean(np.abs(np.array(real_theta) - np.array(deformed_theta)))
+    # rmse_theta = np.sqrt(np.mean((np.array(real_theta) - np.array(deformed_theta)) ** 2))
 
     return {
         "MAE_X": mae_x, "RMSE_X": rmse_x,
         "MAE_Y": mae_y, "RMSE_Y": rmse_y,
-        "MAE_Theta": mae_theta, "RMSE_Theta": rmse_theta
+        # "MAE_Theta": mae_theta, "RMSE_Theta": rmse_theta
     }
 
 def compute_error_velocities(real_velocities, deformed_velocities):
@@ -360,6 +360,10 @@ def extract_path_ros2(bag_path, topic_name):
     if topic_name not in topic_type_dict:
         raise ValueError(f"Topic '{topic_name}' not found in the bag file.")
     (topic, data, t) = reader.read_next()
+    while ( topic != topic_name):
+        (topic, data, t) = reader.read_next()
+    
+    print(topic)
     msg = deserialize_message(data, Path)
     positions = np.array([[pose.pose.position.x, pose.pose.position.y] for pose in msg.poses])
     # Read messages
@@ -384,27 +388,69 @@ def extract_path_ros2(bag_path, topic_name):
         
     return positions
 
-def interpolate_waypoints(waypoints, resolution=0.01):
+def calculate_total_distance(waypoints):
+    total_distance = 0
+    for i in range(len(waypoints) - 1):
+        p1 = waypoints[i]
+        p2 = waypoints[i + 1]
+        total_distance += np.linalg.norm(p2 - p1)
+    return total_distance
+
+def find_resolution_for_target_size(waypoints, target_size):
+    total_distance = calculate_total_distance(waypoints)
+    n_original_points = len(waypoints)
+    n_interpolated_points = target_size - n_original_points
+    resolution = total_distance / n_interpolated_points
+    return resolution
+
+def interpolate_waypoints(waypoints, target_size=1492):
     """
     Interpolate the waypoints to add more points along the path
 
     Args:
     waypoints: array of waypoints
-    resolution: distance between two interpolated points
+    target_size: desired number of waypoints in the output
 
     Return:
     interpolated_waypoints: array of interpolated waypoints
     """
-    interpolated_waypoints = []
+    total_distance = calculate_total_distance(waypoints)
+    n_original_points = len(waypoints)
+    n_interpolated_points = target_size - n_original_points
+    resolution = total_distance / n_interpolated_points
+
+    interpolated_waypoints = [waypoints[0]]  # Start with the first waypoint
+    accumulated_points = 1  # Start with the first waypoint already added
+
     for i in range(len(waypoints) - 1):
         p1 = waypoints[i]
         p2 = waypoints[i + 1]
         dist = np.linalg.norm(p2 - p1)
         n_points = int(dist / resolution)
-        x = np.linspace(p1[0], p2[0], n_points)
-        y = np.linspace(p1[1], p2[1], n_points)
-        interpolated_waypoints += list(zip(x, y))
+        if n_points > 1:
+            x = np.linspace(p1[0], p2[0], n_points, endpoint=False)
+            y = np.linspace(p1[1], p2[1], n_points, endpoint=False)
+            interpolated_waypoints += list(zip(x, y))
+            accumulated_points += n_points
+        interpolated_waypoints.append(p2)  # Ensure the last point is included
+        accumulated_points += 1
+
+    # If we have more points than needed, truncate the list
+    if accumulated_points > target_size:
+        interpolated_waypoints = interpolated_waypoints[:target_size]
+    # If we have fewer points, add more points at the end
+    elif accumulated_points < target_size:
+        last_point = waypoints[-1]
+        while accumulated_points < target_size:
+            interpolated_waypoints.append(last_point)
+            accumulated_points += 1
+
     return np.array(interpolated_waypoints)
+
+# Example usage:
+waypoints = np.array([[0, 0], [1, 1], [2, 2]])  # Replace with your actual waypoints
+interpolated_waypoints = interpolate_waypoints(waypoints, 1492)
+print(f"Number of interpolated waypoints: {len(interpolated_waypoints)}")
 
 
 # Function to plot the trajectories with landmark IDs
@@ -513,7 +559,7 @@ def plot_v_w(timestamps_real, real_velocities):
 
 
 # Main execution
-bag_path = "/home/nukharetrd/ros2_ws/src/pure_pursuit/ros_bag/rosbag2_2024_12_17-13_59_32"
+bag_path = "/home/nukharetrd/ros2_ws/src/pure_pursuit/ros_bag/rosbag2_2024_12_15-19_07_41"
 # # New landmarks with IDs and coordinates
 # # landmark_ids = [11, 12, 13, 21, 22, 23, 31, 32, 33]
 # # landmarks_x = [-1.1, -1.1, -1.1, 0.0, 0.0, 0.0, 1.1, 1.1, 1.1]
@@ -525,33 +571,34 @@ bag_path = "/home/nukharetrd/ros2_ws/src/pure_pursuit/ros_bag/rosbag2_2024_12_17
 
 # Extract data for /odom, /ekf, and /ground_truth
 timestamps_real, real_positions, real_velocities = extract_odom_positions_ros2(bag_path, "/odom")
-timestamps_ground_truth, ground_truth_positions, ground_truth_velocities = extract_odom_positions_ros2(bag_path, "/ground_truth")   #was groundtruth before
+#timestamps_ground_truth, ground_truth_positions, ground_truth_velocities = extract_odom_positions_ros2(bag_path, "/ground_truth")   #was groundtruth before
 timestamps_cmdvel, _, cmd_vel_velocities = extract_odom_positions_ros2(bag_path, "/cmd_vel")
 path_positions = extract_path_ros2(bag_path,"/global_path")
+# print(path_positions)
 interpolated_path_positions = interpolate_waypoints(path_positions)
 
 # Interpolate /ekf and /ground_truth to match /odom timestamps
-if real_positions and ground_truth_positions:
-    interpolated_ground_truth_positions = interpolate_data(timestamps_real, timestamps_ground_truth, ground_truth_positions)
+if real_positions:
+    #interpolated_ground_truth_positions = interpolate_data(timestamps_real, timestamps_ground_truth, ground_truth_positions)
     interpolated_cmd_velocities = interpolate_velocity_data(timestamps_real,timestamps_cmdvel, cmd_vel_velocities )
-    interpolated_ground_truth_velocities = interpolate_velocity_data(timestamps_real, timestamps_ground_truth, ground_truth_velocities)
+    #interpolated_ground_truth_velocities = interpolate_velocity_data(timestamps_real, timestamps_ground_truth, ground_truth_velocities)
     # # Compute errors
     # errors_ekf = compute_error(real_positions, interpolated_ekf_positions)
-    # errors_ground_truth = compute_error(real_positions, interpolated_ground_truth_positions)
+    errors_ground_truth = compute_error(real_positions, interpolated_path_positions)
     # errors_ekf_velocity = compute_error_velocities(interpolated_cmd_velocities, interpolated_ekf_velocities)
 
     # print("Errors between /odom and /ekf:")
     # for key, value in errors_ekf.items():
     #     print(f"{key}: {value}")
 
-    # print("\nErrors between /odom and /ground_truth:")
-    # for key, value in errors_ground_truth.items():
-    #     print(f"{key}: {value}")
+    print("\nErrors between /odom and /global_path:")
+    for key, value in errors_ground_truth.items():
+        print(f"{key}: {value}")
 
     # print("\n Velocity Errors between /cmd_vel and /ekf:")
     # for key, value in errors_ekf_velocity.items():
     #     print(f"{key}: {value}")
     # Plot the trajectories and X, Y, Theta over time
-    plot_trajectories(interpolated_ground_truth_positions, interpolated_path_positions)
+    plot_trajectories(real_positions, interpolated_path_positions)
     # plot_x_y_theta(timestamps_real, real_positions, timestamps_real, interpolated_ekf_positions, timestamps_real, interpolated_ground_truth_positions)
     plot_v_w(timestamps_real, interpolated_cmd_velocities)
